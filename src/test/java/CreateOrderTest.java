@@ -1,27 +1,20 @@
 import io.qameta.allure.Step;
-import io.qameta.allure.restassured.AllureRestAssured;
-import io.restassured.RestAssured;
-import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import model.OrderData;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import java.util.*;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-
-import static io.restassured.RestAssured.given;
+import static org.apache.http.HttpStatus.*;
 import static org.hamcrest.Matchers.notNullValue;
 
 @RunWith(Parameterized.class)
-public class CreateOrderTest {
+public class CreateOrderTest extends BaseApi {
 
     private final List<String> color;
-    private String track;
+    private String createdOrderTrack;
+    private final OrderApi orderApi = new OrderApi();
 
     public CreateOrderTest(List<String> color) {
         this.color = color;
@@ -37,52 +30,25 @@ public class CreateOrderTest {
         });
     }
 
-    @Before
-    public void setup() {
-        RestAssured.reset();
-        RestAssured.baseURI = "https://qa-scooter.praktikum-services.ru";
-        RestAssured.filters(new AllureRestAssured());
-    }
-
     @Test
+    @Step("Проверка создания заказа с разными цветами")
     public void checkCreateOrderWithVariousColors() {
         OrderData order = OrderData.withColor(color);
-
-        Response response = createOrder(order);
+        Response response = orderApi.createOrder(order);
 
         response.then()
                 .assertThat()
-                .statusCode(201)
+                .statusCode(SC_CREATED)
                 .body("track", notNullValue());
 
-        track = response.body().jsonPath().getString("track");
-        System.out.println("Track ID: " + track);
-    }
-
-    @Step("Создать заказ с цветом: {order.color}")
-    private Response createOrder(OrderData order) {
-        return given()
-                .log().all()
-                .contentType(ContentType.JSON)
-                .body(order)
-                .when()
-                .post("/api/v1/orders");
+        createdOrderTrack = response.body().jsonPath().getString("track");
     }
 
     @After
-    @Step("Отменить заказ с track: {track}") //тут даже при успешной отмене приходит код 400 (проверно через UI и postman)
+    @Step("Отменить заказ с track: {createdOrderTrack}")
     public void cancelOrder() {
-        if (track != null) {
-            String body = "{\"track\": " + track + "}";
-            given()
-                    .log().all()
-                    .contentType(ContentType.JSON)
-                    .body(body)
-                    .when()
-                    .put("/api/v1/orders/cancel")
-                    .then()
-                    .assertThat()
-                    .statusCode(200);
+        if (createdOrderTrack != null) {
+            orderApi.cancelOrderByTrack(createdOrderTrack);
         }
     }
 }

@@ -1,120 +1,59 @@
-import io.qameta.allure.Step;
-import io.qameta.allure.restassured.AllureRestAssured;
-import io.restassured.RestAssured;
-import io.restassured.response.Response;
+import io.qameta.allure.Description;
+import io.restassured.response.ValidatableResponse;
 import model.Courier;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
-import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.*;
+import static org.apache.http.HttpStatus.*;
 
 public class CourierLoginTest {
 
-    private final String baseUri = "https://qa-scooter.praktikum-services.ru";
-    private String courierId;
-    private Courier testCourier;
+    private final CourierApi courierApi = new CourierApi();
+    private Courier courier;
 
     @Before
     public void setUp() {
-        RestAssured.reset();
-        RestAssured.baseURI = baseUri;
-        RestAssured.filters(new AllureRestAssured());
-
-        testCourier = new Courier("testLogin" + System.currentTimeMillis(), "1234", "TestUser");
-        courierId = createCourier(testCourier);
+        courier = CourierGenerator.random();
+        courierApi.createAndLogin(courier);
     }
 
     @After
     public void tearDown() {
-        if (courierId != null) {
-            deleteCourier(courierId);
-        }
-    }
-
-    @Step("Создание курьера")
-    private String createCourier(Courier courier) {
-        given()
-                .header("Content-type", "application/json")
-                .body(courier)
-                .when()
-                .post("/api/v1/courier")
-                .then()
-                .statusCode(201)
-                .body("ok", is(true));
-
-        // Получим ID через логин
-        return given()
-                .header("Content-type", "application/json")
-                .body(courier)
-                .when()
-                .post("/api/v1/courier/login")
-                .then()
-                .statusCode(200)
-                .extract().path("id").toString();
-    }
-
-    @Step("Удаление курьера")
-    private void deleteCourier(String id) {
-        given()
-                .when()
-                .delete("/api/v1/courier/" + id)
-                .then()
-                .statusCode(200)
-                .body("ok", is(true));
-    }
-
-    @Step("Отправка запроса логина")
-    private Response loginCourier(Courier courier) {
-        return given()
-                .header("Content-type", "application/json")
-                .body(courier)
-                .when()
-                .post("/api/v1/courier/login");
+        courierApi.deleteByLoginAndPassword(courier);
     }
 
     @Test
-    public void loginShouldBeSuccessful() {
-        loginCourier(testCourier)
-                .then()
-                .statusCode(200)
-                .body("id", notNullValue());
+    @Description("Успешный логин с валидными данными")
+    public void courierCanLoginWithValidCredentials() {
+        ValidatableResponse response = courierApi.login(courier);
+        response.statusCode(SC_OK).body("id", notNullValue());
     }
 
     @Test
-    public void loginWithWrongPasswordShouldFail() {
-        Courier wrongPass = new Courier(testCourier.getLogin(), "wrongpass", null);
-        loginCourier(wrongPass)
-                .then()
-                .statusCode(404)
-                .body("message", equalTo("Учетная запись не найдена"));
+    @Description("Ошибка логина с неверным паролем")
+    public void courierCannotLoginWithWrongPassword() {
+        Courier wrongPasswordCourier = new Courier(courier.getLogin(), "wrongPassword");
+        ValidatableResponse response = courierApi.login(wrongPasswordCourier);
+        response.statusCode(SC_NOT_FOUND).body("message", equalTo("Учетная запись не найдена"));
     }
 
     @Test
-    public void loginWithWrongLoginShouldFail() {
-        Courier wrongLogin = new Courier("noSuchUser", testCourier.getPassword());
-        loginCourier(wrongLogin)
-                .then()
-                .statusCode(404)
-                .body("message", equalTo("Учетная запись не найдена"));
+    @Description("Ошибка при авторизации без логина")
+    public void shouldReturn400IfLoginMissingWhenLogin() {
+        Courier courierWithoutLogin = new Courier("", "somePassword");
+
+        courierApi.login(courierWithoutLogin)
+                .statusCode(SC_BAD_REQUEST)
+                .body("message", containsString("Недостаточно данных для входа"));
     }
 
     @Test
-    public void loginWithoutLoginShouldReturn400() {
-        Courier noLogin = new Courier("", testCourier.getPassword());
-        loginCourier(noLogin)
-                .then()
-                .statusCode(400)
-                .body("message", equalTo("Недостаточно данных для входа"));
-    }
+    @Description("Ошибка при авторизации без пароля")
+    public void shouldReturn400IfPasswordMissingWhenLogin() {
+        Courier courierWithoutPassword = new Courier("someLogin", "");
 
-    @Test
-    public void loginWithoutPasswordShouldReturn400() {
-        Courier noPass = new Courier(testCourier.getLogin(), "");
-        loginCourier(noPass)
-                .then()
-                .statusCode(400)
-                .body("message", equalTo("Недостаточно данных для входа"));
+        courierApi.login(courierWithoutPassword)
+                .statusCode(SC_BAD_REQUEST)
+                .body("message", containsString("Недостаточно данных для входа"));
     }
 }

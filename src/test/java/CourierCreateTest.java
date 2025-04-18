@@ -1,111 +1,69 @@
-import io.qameta.allure.Step;
-import io.qameta.allure.restassured.AllureRestAssured;
-import io.restassured.RestAssured;
-import io.restassured.specification.RequestSpecification;
+import io.qameta.allure.Description;
 import model.Courier;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Random;
-
-import static io.restassured.RestAssured.given;
+import static org.apache.http.HttpStatus.*;
 import static org.hamcrest.Matchers.*;
 
 public class CourierCreateTest {
 
-    private String baseUri = "https://qa-scooter.praktikum-services.ru";
-    private String courierId;
+    private final CourierApi courierApi = new CourierApi();
+    private Courier courier;
 
     @Before
     public void setUp() {
-        RestAssured.reset();
-        RestAssured.baseURI = baseUri;
-        RestAssured.filters(new AllureRestAssured());
-    }
-
-    @Step("Генерация случайного курьера для тестирования")
-    private Courier generateCourier() {
-        int random = new Random().nextInt(99999);
-        return new Courier("user" + random, "1234", "TestName");
-    }
-
-    @Step("Создание курьера с логином {0}")
-    private String createCourier(Courier courier) {
-        return requestSpec(courier)
-                .when()
-                .post("/api/v1/courier")
-                .then()
-                .statusCode(201)
-                .body("ok", is(true))
-                .extract().path("id");
-    }
-
-    @Step("Удаление курьера с ID {0}")
-    private void deleteCourier(String courierId) {
-        given()
-                .header("Content-type", "application/json")
-                .when()
-                .delete("/api/v1/courier/" + courierId)
-                .then()
-                .statusCode(200)
-                .body("ok", is(true));
-    }
-
-    // Универсальный метод для формирования запроса
-    private RequestSpecification requestSpec(Object body) {
-        return given()
-                .header("Content-type", "application/json")
-                .body(body);
-    }
-
-    @Test
-    public void shouldCreateCourierSuccessfully() {
-        Courier courier = generateCourier();
-        courierId = createCourier(courier); // Упрощено
-    }
-
-    @Test
-    public void shouldNotCreateDuplicateCourier() {
-        Courier courier = generateCourier();
-        courierId = createCourier(courier);
-
-        requestSpec(courier)
-                .when()
-                .post("/api/v1/courier")
-                .then()
-                .statusCode(409)
-                .body("message", containsString("Этот логин уже используется"));
-    }
-
-    @Test
-    public void shouldReturn400IfLoginMissing() {
-        Courier courier = new Courier(null, "1234", "NoLogin");
-
-        requestSpec(courier)
-                .when()
-                .post("/api/v1/courier")
-                .then()
-                .statusCode(400)
-                .body("message", containsString("Недостаточно данных для создания учетной записи"));
-    }
-
-    @Test
-    public void shouldReturn400IfPasswordMissing() {
-        Courier courier = new Courier("noPassLogin", null, "NoPass");
-
-        requestSpec(courier)
-                .when()
-                .post("/api/v1/courier")
-                .then()
-                .statusCode(400)
-                .body("message", containsString("Недостаточно данных для создания учетной записи"));
+        courier = CourierGenerator.random();
     }
 
     @After
     public void tearDown() {
-        if (courierId != null) {
-            deleteCourier(courierId);
+        if (courier != null) {
+            try {
+                courierApi.deleteByLoginAndPassword(courier);
+            } catch (AssertionError ignored) {
+            }
         }
+    }
+
+    @Test
+    @Description("Успешное создание курьера")
+    public void shouldCreateCourierSuccessfully() {
+        courierApi.create(courier)
+                .statusCode(SC_CREATED)
+                .body("ok", is(true));
+    }
+
+    @Test
+    @Description("Нельзя создать дубликат курьера с тем же логином")
+    public void shouldNotCreateDuplicateCourier() {
+        courierApi.create(courier)
+                .statusCode(SC_CREATED)
+                .body("ok", is(true));
+
+        courierApi.create(courier)
+                .statusCode(SC_CONFLICT)
+                .body("message", containsString("Этот логин уже используется"));
+    }
+
+    @Test
+    @Description("Ошибка при создании курьера без логина")
+    public void shouldReturn400IfLoginMissing() {
+        Courier courierWithoutLogin = new Courier(null, "1234");
+
+        courierApi.create(courierWithoutLogin)
+                .statusCode(SC_BAD_REQUEST)
+                .body("message", containsString("Недостаточно данных для создания учетной записи"));
+    }
+
+    @Test
+    @Description("Ошибка при создании курьера без пароля")
+    public void shouldReturn400IfPasswordMissing() {
+        Courier courierWithoutPassword = new Courier("noPassLogin", null);
+
+        courierApi.create(courierWithoutPassword)
+                .statusCode(SC_BAD_REQUEST)
+                .body("message", containsString("Недостаточно данных для создания учетной записи"));
     }
 }
